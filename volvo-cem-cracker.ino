@@ -3,11 +3,14 @@
  * Copyright (C) 2020, 2021 Vitaly Mayatskikh <v.mayatskih@gmail.com>
  *               2020 Christian Molson <christian@cmolabs.org>
  *               2020 Mark Dapoz <md@dapoz.ca>
+ *               2022 Rick Hale Parker <RickParker22@gmail.com>
  *
  * This work is licensed under the terms of the GNU GPL, version 3.
  *
  */
 
+
+/* #define PERCENT_DIFF_THRESHOLD 0.9 /* percentage difference between top two pins */
 
 
 
@@ -25,6 +28,7 @@
 int cem_reply_min;
 int cem_reply_avg;
 int cem_reply_max;
+int round_number = 1;
 
 #define AVERAGE_DELTA_MIN     -8  /* buckets to look at before the rolling average */
 #define AVERAGE_DELTA_MAX     12  /* buckets to look at after the rolling average  */
@@ -59,8 +63,9 @@ typedef enum {
 int cem_clocks_per_us;
 int CALC_BYTES;
 int SAMPLES;
-int PERCENT_DIFF_THRESHOLD;
 int MAX_ROUNDS;
+float PERCENT_DIFF_THRESHOLD;
+int sc =1;
 
 unsigned char  shuffle_orders[5][PIN_LEN] = { { 0, 1, 2, 3, 4, 5 }, { 3, 1, 5, 0, 2, 4 }, {5, 2, 1, 4, 0, 3}, { 2, 4, 5, 0, 3, 1} };
 unsigned char *shuffle_order;
@@ -74,15 +79,16 @@ struct _cem_params {
   int shuffle;    /* shuffle order from list above */ 
   int calc;       /* how many PIN bytes to calculate (1 to 4), the rest is brute-forced */
   int samples;    /* how many hundreds of samples to attempt per pin digit */
-  int threshold;  /* percentage difference between top two pins */
+  float threshold;  /* percentage difference between top two pins X 10. Example:1  = 1%, 11 = 1.1% threshold */
   int rounds;     /* max number of filter rounds before picking top entry */
   
 
-/* Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds. */ 
 
 } cem_params[] = {
+  
+ // Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds.
 // P1
-  { 8690719,  CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
+  { 8690719,  CAN_500KBPS, 8, 0, 4, 1, 0.5, 10 },
   { 8690720,  CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
   { 8690721,  CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
   { 8690722,  CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
@@ -94,7 +100,8 @@ struct _cem_params {
   { 31254749, CAN_500KBPS, 8, 3, 4, 1, 0.5, 3 },
   { 31254903, CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
   { 31296881, CAN_500KBPS, 8, 0, 4, 1, 0.5, 3 },
-
+  
+// Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds.
 // P2 CEM-B (Brick shaped 1999-2004 with K-line)
   { 8645716, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
   { 8645719, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
@@ -112,6 +119,7 @@ struct _cem_params {
   { 9469809, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
   { 8645200, CAN_250KBPS, 4, 0, 4, 1, 0.1, 3 },
 
+// Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds.
 // P2 CEM-L (L shaped and marked L 2005-2014)
   { 30682981, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
   { 30682982, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
@@ -125,6 +133,7 @@ struct _cem_params {
   { 31314468, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
   { 31394158, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
 
+ // Format:  CEM partnumber, CAN Bus baud speed, MCU frequency,  shuffle order, Calc Bytes, Samples, threshold percentage, Maxium rounds.
 // P2 CEM-H (L shaped and marked H 2005 - 2007)
   { 30786476, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
   { 30728539, CAN_500KBPS, 30, 1, 4, 7, 0.1, 3 },
@@ -172,9 +181,16 @@ void canMsgSend (can_bus_id_t bus, uint32_t id, uint8_t *data, bool verbose)
   CAN_message_t msg;
 
   if (verbose == true) {
-      printf ("CAN_%cS ---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+      printf ("CAN_%cS ---> ID=%08x data=%02x %02x %02x %02x %02x %02x %02x %02x",
               bus == CAN_HS ? 'H' : 'L',
               id, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
+  if (sc <= 3) {
+        printf("\t");
+        sc++; 
+      }
+      else{printf("\n");
+      sc =1;
+      }
    }
 
   /* prepare the message to transmit */
@@ -422,6 +438,8 @@ FASTRUN bool cemUnlock (uint8_t *pin, uint8_t *pinUsed, uint32_t *latency, bool 
 
   /* a reply of 0x00 indicates CEM was unlocked */
 
+  delay(2);
+
   return reply[2] == 0x00;
 }
 
@@ -581,6 +599,9 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
   /* clear collected latencies */
   memset (sequence, 0, sizeof(sequence));
 
+  /* reset rounds */
+  round_number = 1;
+
   for (i = 0; i < 100; i++) {
     sequence[i].pinValue = binToBcd(i);
     sequence[i].latency  = 0;
@@ -591,6 +612,11 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
 
    /* Clear latencies */
    //memset(latency, 0x00, sizeof(latency));
+   
+  printf("\n");
+  printf ("Round: %d\n", round_number);
+  printf("\n");
+  
    printf("Running sequence with %d samples per pin\n", sample_multiplier*100);
    /* iterate over all possible values for the PIN digit */
    for (pin1 = 0; pin1 < 100; pin1++) {
@@ -637,16 +663,30 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
       sequence[pin1].latency  = latency[bcdToBin(pin1BCD)];
       sequence[pin1].std      = 0;
 
-      printf ("latency % 10u;\n", sequence[pin1].latency);
+      printf ("latency % 10u", sequence[pin1].latency);
+
+      if (sc <= 4) {
+        printf("\t");
+        sc++; 
+      }
+      else{printf("\n");
+      sc =1;
+      }
     }
+
+   printf("\n");
+   printf("\n");
+    
 
     /* Incremenet the sample multiplier if we need to try again */
     sample_multiplier++;
+    round_number++;
     
     /* sort result*/
     qsort (sequence, 100, sizeof(sequence_t), seq_max_lat);
     
     /* print the top range/2 latencies and their PIN value */
+    sc=1;
     printf("best candidates ordered by latency:\n");
     for (int i = 0; i < 100; i++) {
       printf ("%u: %02x lat = %u", i, sequence[i].pinValue, sequence[i].latency);
@@ -655,11 +695,23 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
         sequence[i].std = (100.0 * (sequence[0].latency - sequence[i].latency)) / sequence[0].latency;
         printf(", prev: -%3.4f%%, best: -%3.4f%%",
           (100.0 * (sequence[i - 1].latency - sequence[i].latency)) / sequence[i - 1].latency, sequence[i].std);
-      printf("\n");
+          
+      if (sc <= 3) {
+        printf("\t");
+        sc++; 
+      }
+      else{printf("\n");
+      sc =1;
+      }
     }
+   
     printf("...\n");
+
+   
+ 
     
-  }while( (((100.0 * (sequence[0].latency - sequence[1].latency)) / sequence[0].latency) < PERCENT_DIFF_THRESHOLD) && sample_multiplier <= MAX_ROUNDS );
+    
+  }while( (((100.0 * (sequence[0].latency - sequence[1].latency)) / sequence[0].latency) < PERCENT_DIFF_THRESHOLD) && round_number <= MAX_ROUNDS );
 
 
 
@@ -893,12 +945,13 @@ void setup (void)
   /* CANL_L_PIN interrupt handler */
   attachInterrupt(digitalPinToInterrupt(CAN_L_PIN), can_l_interrupt, CHANGE);
 
-  set_arm_clock (180000000);
+  set_arm_clock (600000000);
 
   printf ("CPU Maximum Frequency:   %u\n", F_CPU);
   printf ("CPU Frequency:           %u\n", F_CPU_ACTUAL);
   printf ("Execution Rate:          %u cycles/us\n", clockCyclesPerMicrosecond ());
   printf ("PIN bytes to measure:    %u\n", CALC_BYTES);
+  printf("\n\n");
 
   long pn = 0;
 
@@ -912,6 +965,7 @@ void setup (void)
   pn = ecu_read_part_number(CAN_LS, CEM_LS_ECU_ID);
 
   if (!pn) {// might be CEM-L
+    printf("\n");
     printf("Can't find part number on CAN-LS, trying CAN-HS at 500 Kbps\n");
     can_hs_init(CAN_500KBPS);
     hs_inited = true;
@@ -934,12 +988,13 @@ void setup (void)
   cem_clocks_per_us = hs_params.mhz;
   CALC_BYTES = hs_params.calc; 
   SAMPLES = hs_params.samples;
-  PERCENT_DIFF_THRESHOLD = hs_params.threshold;
   MAX_ROUNDS = hs_params.rounds; 
+  PERCENT_DIFF_THRESHOLD = hs_params.threshold;
   
   printf("CAN HS baud rate:   %d\n", hs_params.baud);
   printf("PIN shuffle order:  %d %d %d %d %d %d\n", shuffle_order[0], shuffle_order[1], shuffle_order[2], shuffle_order[3], shuffle_order[4], shuffle_order[5]);
   printf("CEM MHZ:            %d\n", hs_params.mhz);
+  printf("Threshold:            %f\n", hs_params.threshold);
 
 #if defined(CEM_PN_AUTODETECT)
   if (!hs_inited)
