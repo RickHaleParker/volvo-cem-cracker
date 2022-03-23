@@ -607,7 +607,7 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
     sequence[i].latency  = 0;
     sequence[i].std  = 0;
   }
-
+sc=1;
   do {
 
    /* Clear latencies */
@@ -665,7 +665,7 @@ void crackPinPosition(uint8_t *pin, int pos, bool verbose)
 
       printf ("latency % 10u", sequence[pin1].latency);
 
-      if (sc <= 4) {
+      if (sc <= 3) {
         printf("\t");
         sc++; 
       }
